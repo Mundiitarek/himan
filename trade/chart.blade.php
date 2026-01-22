@@ -3,8 +3,14 @@
  $pair   = $meta->pair;
  $widget = gs("trading_view_widget");
 
- $tradingView = $pair->resolveTradingViewSymbol();
- $symbol = $tradingView['symbol'] ?? null;
+ $symbol = $pair->symbol;
+ if (!$symbol) {
+     $base = $pair->baseSymbol();
+     $quote = $pair->quoteSymbol();
+     if ($base && $quote) {
+         $symbol = $base . '_' . $quote;
+     }
+ }
 
  if ($symbol) {
      $widget = str_replace('{{pair}}', $symbol, $widget);
