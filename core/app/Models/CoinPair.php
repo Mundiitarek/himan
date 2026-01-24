@@ -16,49 +16,36 @@ class CoinPair extends Model
     protected $guarded = ['id'];
 
     private const TRADINGVIEW_FOREX = [
-        'EUR','GBP','JPY','AUD','CAD','NZD','CHF',
+        'USD','EUR','GBP','JPY','AUD','CAD','NZD','CHF',
         'CNY','HKD','SGD','INR','MXN','ZAR','TRY',
-        'XAU','XAG','XPT','XPD','XCU',
     ];
 
     private const TRADINGVIEW_INDICES = [
-        'SPX' => 'SP:SPX',
-        'NDX' => 'NASDAQ:NDX',
-        'DAX' => 'XETR:DAX',
-        'DJI' => 'DJI',
-        'RUT' => 'RUSSELL:RUT',
-        'VIX' => 'CBOE:VIX',
-        'FTSE' => 'FTSE:UKX',
-        'CAC' => 'EURONEXT:CAC40',
-        'NIKKEI' => 'TSE:N225',
-        'HSI' => 'HSI:HSI',
-        'SSE' => 'SSE:000001',
+        'SPX' => ['SP:SPX', 'CBOE:SPX', 'INDEX:SPX', 'TVC:SPX'],
+        'VIX' => ['CBOE:VIX', 'TVC:VIX', 'INDEX:VIX'],
+        'FTSE' => ['INDEX:FTSE', 'TVC:UKX'],
+        'CAC' => ['INDEX:CAC40', 'TVC:CAC40'],
+        'NIKKEI' => ['INDEX:NIKKEI', 'TVC:N225'],
+        'N225' => ['INDEX:N225', 'TVC:N225'],
+        'HSI' => ['INDEX:HSI', 'TVC:HSI'],
+        'RUT' => ['INDEX:RUT', 'TVC:RUT', 'SP:RUT'],
     ];
 
     private const TRADINGVIEW_COMMODITIES = [
-        'USOIL' => 'TVC:USOIL',
-        'UKOIL' => 'TVC:UKOIL',
-        'NATGAS' => 'TVC:NATGAS',
-        'XAU' => 'TVC:GOLD',
-        'XAG' => 'TVC:SILVER',
+        'XAUUSD' => ['OANDA:XAUUSD', 'COMEX:GC1!', 'TVC:GOLD'],
+        'XAGUSD' => ['OANDA:XAGUSD', 'COMEX:SI1!', 'TVC:SILVER'],
+        'XCUUSD' => ['OANDA:XCUUSD', 'COMEX:HG1!', 'TVC:COPPER'],
+        'NATGASUSD' => ['NYMEX:NATGAS', 'TVC:NATGAS', 'OANDA:NATGASUSD'],
+        'NATGAS' => ['NYMEX:NATGAS', 'TVC:NATGAS', 'OANDA:NATGASUSD'],
     ];
 
     private const TRADINGVIEW_STOCKS = [
-        'AAPL' => 'NASDAQ:AAPL',
-        'TSLA' => 'NASDAQ:TSLA',
-        'GOOGL' => 'NASDAQ:GOOGL',
-        'AMZN' => 'NASDAQ:AMZN',
-        'MSFT' => 'NASDAQ:MSFT',
-        'META' => 'NASDAQ:META',
-        'NVDA' => 'NASDAQ:NVDA',
-        'AMD' => 'NASDAQ:AMD',
-        'NFLX' => 'NASDAQ:NFLX',
-        'DIS' => 'NYSE:DIS',
+        'DIS' => ['NYSE:DIS', 'NASDAQ:DIS'],
     ];
 
     private const TRADINGVIEW_CRYPTO = [
-        'BTC' => 'BINANCE:BTCUSDT',
-        'ETH' => 'BINANCE:ETHUSDT',
+        'BTC' => ['BINANCE:BTCUSDT'],
+        'ETH' => ['BINANCE:ETHUSDT'],
     ];
 
     public function market()
@@ -158,55 +145,93 @@ class CoinPair extends Model
 
     public function resolveTradingViewSymbol(): array
     {
-        $base = $this->baseSymbol();
-        $quote = $this->quoteSymbol();
+        $override = trim((string) $this->tradingview_symbol);
+        if ($override !== '') {
+            return [
+                'symbol' => $override,
+                'error' => null,
+                'candidates' => [$override],
+            ];
+        }
+
+        $pair = $this->normalizedPairSymbols();
+        $base = $pair['base'];
+        $quote = $pair['quote'];
+        $candidates = [];
 
         if (!$base) {
             return [
                 'symbol' => null,
                 'error' => 'Missing base symbol',
+                'candidates' => [],
             ];
+        }
+
+        if ($quote && $this->isForexPair($base, $quote)) {
+            foreach (['FX_IDC', 'OANDA', 'SAXO', 'ICE'] as $exchange) {
+                $candidates[] = $exchange . ':' . $base . $quote;
+            }
         }
 
         if (isset(self::TRADINGVIEW_INDICES[$base])) {
-            return [
-                'symbol' => self::TRADINGVIEW_INDICES[$base],
-                'error' => null,
-            ];
+            $candidates = array_merge($candidates, self::TRADINGVIEW_INDICES[$base]);
         }
 
-        if (isset(self::TRADINGVIEW_COMMODITIES[$base])) {
-            return [
-                'symbol' => self::TRADINGVIEW_COMMODITIES[$base],
-                'error' => null,
-            ];
+        $commodityKey = $base . ($quote ?? '');
+        if (isset(self::TRADINGVIEW_COMMODITIES[$commodityKey])) {
+            $candidates = array_merge($candidates, self::TRADINGVIEW_COMMODITIES[$commodityKey]);
+        } elseif (isset(self::TRADINGVIEW_COMMODITIES[$base])) {
+            $candidates = array_merge($candidates, self::TRADINGVIEW_COMMODITIES[$base]);
         }
 
         if (isset(self::TRADINGVIEW_STOCKS[$base])) {
-            return [
-                'symbol' => self::TRADINGVIEW_STOCKS[$base],
-                'error' => null,
-            ];
+            $candidates = array_merge($candidates, self::TRADINGVIEW_STOCKS[$base]);
         }
 
         if (isset(self::TRADINGVIEW_CRYPTO[$base])) {
-            return [
-                'symbol' => self::TRADINGVIEW_CRYPTO[$base],
-                'error' => null,
-            ];
+            $candidates = array_merge($candidates, self::TRADINGVIEW_CRYPTO[$base]);
         }
 
-        if ($quote && in_array($base, self::TRADINGVIEW_FOREX, true)) {
+        if (!$candidates) {
             return [
-                'symbol' => 'FX:' . $base . $quote,
-                'error' => null,
+                'symbol' => null,
+                'error' => 'TradingView symbol unsupported',
+                'candidates' => [],
             ];
         }
 
         return [
-            'symbol' => null,
-            'error' => 'TradingView symbol unsupported',
+            'symbol' => $candidates[0],
+            'error' => null,
+            'candidates' => $candidates,
         ];
+    }
+
+    private function normalizedPairSymbols(): array
+    {
+        $raw = strtoupper((string) $this->symbol);
+        if ($raw !== '') {
+            $normalized = str_replace(['-', '/'], '_', $raw);
+            $parts = array_values(array_filter(explode('_', $normalized)));
+            if (count($parts) >= 2) {
+                return ['base' => $parts[0], 'quote' => $parts[1]];
+            }
+
+            if ($parts) {
+                return ['base' => $parts[0], 'quote' => null];
+            }
+        }
+
+        return [
+            'base' => $this->baseSymbol(),
+            'quote' => $this->quoteSymbol(),
+        ];
+    }
+
+    private function isForexPair(string $base, string $quote): bool
+    {
+        return in_array($base, self::TRADINGVIEW_FOREX, true)
+            && in_array($quote, self::TRADINGVIEW_FOREX, true);
     }
 
     private function splitSymbol(): array
