@@ -73,7 +73,9 @@ class CoinPairController extends Controller
             }],
             'percent_charge_for_buy'  => 'required|numeric|gte:0|lt:100',
             'percent_charge_for_sell' => 'required|numeric|gte:0',
-            'listed_market_name'      => 'required'
+            'listed_market_name'      => 'required',
+            'tradingview_symbol'      => 'nullable|string|max:64',
+            'twelvedata_symbol'       => 'nullable|string|max:64',
         ]);
 
         if(!$id){
@@ -114,6 +116,8 @@ class CoinPairController extends Controller
         $coinPair->percent_charge_for_sell = $request->percent_charge_for_sell;
         $coinPair->percent_charge_for_buy  = $request->percent_charge_for_buy;
         $coinPair->listed_market_name      = strtoupper($request->listed_market_name);
+        $coinPair->tradingview_symbol      = $request->tradingview_symbol;
+        $coinPair->twelvedata_symbol       = $request->twelvedata_symbol;
 
         if ($request->is_default) {
             CoinPair::where('id', '!=', $id)->where('is_default', Status::YES)->update(['is_default' => Status::NO]);

@@ -58,16 +58,27 @@ class TwelveDataSyncController extends Controller
                     continue;
                 }
 
-                // ✅ لو عندك لاحقاً عمود td_symbol في DB هيتاخد تلقائي
-                $tdSymbol = $pair->td_symbol ?? null;
+                $tdSymbol = $pair->twelvedata_symbol ?? null;
+                $resolvedSymbol = $tdSymbol ?: strtoupper($base . '/' . $quote);
 
                 try {
-                    $quoteResult = $td->quoteForPair($base, $quote, $tdSymbol, $ttl);
-                    $q = $quoteResult['data'] ?? [];
-                    $resolvedSymbol = $quoteResult['symbol'] ?? $tdSymbol ?? $base;
+                    $quoteResult = $td->quote($resolvedSymbol);
+                    if (($quoteResult['status'] ?? null) === 'error') {
+                        $errors[] = [
+                            'pair_id' => $pair->id,
+                            'pair_symbol' => $pair->symbol,
+                            'td_symbol' => $resolvedSymbol,
+                            'error' => $quoteResult['message'] ?? 'TwelveData error',
+                        ];
+                        continue;
+                    }
+                    $q = $quoteResult['data'] ?? $quoteResult;
 
                     // السعر: TwelveData ساعات يرجع close أو price
-                    $price = $td->extractPrice(is_array($q) ? $q : []);
+                    $price = 0;
+                    if (is_array($q)) {
+                        $price = (float)($q['price'] ?? $q['close'] ?? 0);
+                    }
 
                     if ($price <= 0) {
                         $errors[] = [
@@ -80,12 +91,10 @@ class TwelveDataSyncController extends Controller
                         continue;
                     }
 
-                    $currencyId = (int)(optional($pair->market)->currency_id ?? 0);
-
                     MarketData::updateOrCreate(
                         [
                             'pair_id' => $pair->id,
-                            'currency_id' => $currencyId,
+                            'currency_id' => 0,
                         ],
                         [
                             'price' => $price,
